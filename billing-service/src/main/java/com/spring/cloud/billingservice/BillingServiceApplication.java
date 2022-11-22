@@ -1,9 +1,11 @@
 package com.spring.cloud.billingservice;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -17,6 +19,7 @@ import org.springframework.data.rest.core.config.RepositoryRestConfiguration;
 import org.springframework.hateoas.PagedModel;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.persistence.*;
 import java.util.Collection;
@@ -29,7 +32,10 @@ class Bill{
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 	private Date billingDate;
+	@JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
 	private  Long customerId;
+	@Transient
+	private  Customer customer;
 	@OneToMany(mappedBy = "bill")
 	private Collection<ProductItem> productItems;
 }
@@ -51,10 +57,14 @@ class ProductItem{
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
+	@JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
 	private  Long productId;
+	@Transient
+	private  Product product;
 	private  double price;
 	private  double quantity;
 	@ManyToOne
+	@JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
 	private Bill bill;
 }
 
@@ -109,11 +119,12 @@ public class BillingServiceApplication {
 			System.out.println("NAME= "+c1.getName());
 			System.out.println("EMAIL= "+c1.getEmail());
 			System.out.println("********************************************");
-			Bill bill1 = billRepository.save(new Bill(null, new Date(), c1.getId(), null));
+			Bill bill1 = billRepository.save(new Bill(null, new Date(), c1.getId(),null, null));
 
 			PagedModel<Product> products = inventoryService.findAllProducts();
+
 			products.getContent().forEach(p -> {
-				productItemRepository.save(new ProductItem(null, p.getId(),p.getPrice(), 20, bill1));
+				productItemRepository.save(new ProductItem(null, p.getId(),null,p.getPrice(), 20, bill1));
 				System.out.println("********************************************");
 				System.out.println("ID= "+p.getId());
 				System.out.println("NAME= "+p.getName());
@@ -123,5 +134,27 @@ public class BillingServiceApplication {
 
 		};
 	}
+}
 
+@RestController
+class BillRestController{
+	@Autowired
+	private BillRepository billRepository;
+	@Autowired
+	private ProductItemRepository productItemRepository;
+	@Autowired
+	private CustomerService customerService;
+	@Autowired
+	private InventoryService inventoryService;
+
+
+	@GetMapping("/fullBill/{id}")
+	public Bill getBill(@PathVariable(name = "id") Long id){
+		Bill bill=billRepository.findById(id).get();
+		bill.setCustomer(customerService.findCustomerById(bill.getCustomerId()));
+		bill.getProductItems().forEach(pi -> {
+			pi.setProduct(inventoryService.findProductById(pi.getProductId()));
+		});
+		return bill;
+	}
 }
